@@ -86,12 +86,16 @@ def search_playlists(query, limit=10):
 
 def get_playlist_track_ids(playlist_id, limit=100):
     track_ids = []
-    results = sp.playlist_tracks(playlist_id, limit=limit)
-    tracks = results['items']
-
-    for track in tracks:
-        track_ids.append(track['track']['id'])
-
+    offset = 0
+    while True:
+        results = sp.playlist_tracks(playlist_id, limit=limit, offset=offset)
+        tracks = results['items']
+        if not tracks:
+            break
+        track_ids.extend(track['track']['id'] for track in tracks)
+        offset += limit
+        if len(track_ids) >= 5000:
+            break
     return track_ids
 
 
@@ -125,24 +129,94 @@ csv_file_path = 'song_data.csv'
 fieldnames = ['name', 'artists', 'album', 'release_date', 'energy', 'danceability', 'popularity', 'keywords']
 
 # Main logic
-queries = ["Hindi bollywood 90s", "Hindi songs", "20s songs hindi"]
+queries = [
+    # General and Popular Keywords
+    "Hindi Bollywood Hits",
+    "Top Bollywood Songs",
+    "Popular Hindi Songs",
+    "Classic Hindi Songs",
+    "Latest Hindi Songs",
+    "Bollywood Music Playlist",
+    "Top Hindi Tracks",
+    "Hit Hindi Songs",
+    "Hindi Movie Songs",
+    "Hindi Love Songs",
+
+    # Specific Decades or Eras
+    "90s Bollywood Songs",
+    "80s Hindi Songs",
+    "70s Hindi Classics",
+    "Early 2000s Bollywood Hits",
+    "Vintage Hindi Songs",
+
+    # Genres and Moods
+    "Romantic Hindi Songs",
+    "Dance Hindi Songs",
+    "Sad Hindi Songs",
+    "Party Hindi Songs",
+    "Melancholic Hindi Music",
+    "Bollywood Romantic Ballads",
+    "Hindi Rock Songs",
+    "Hindi Folk Songs",
+    "Bollywood Love Songs",
+
+    # Popular Artists and Composers
+    "Songs by Lata Mangeshkar",
+    "Songs by Kishore Kumar",
+    "A.R. Rahman Hits",
+    "Songs by Arijit Singh",
+    "Bollywood Songs by Shreya Ghoshal",
+
+    # Specific Themes
+    "Hindi Festival Songs (e.g., Diwali, Holi)",
+    "Hindi Inspirational Songs",
+    "Patriotic Hindi Songs",
+    "Hindi Wedding Songs",
+
+    # Playlists and Curated Collections
+    "Bollywood Top 50",
+    "Hindi Music for Relaxation",
+    "Bollywood Essentials",
+    "Hindi Hits of the Year",
+
+    # Regional Variations
+    "Punjabi Bollywood Songs",
+    "South Indian Hindi Songs",
+    "Hindi Songs from Mumbai",
+
+    # Example Queries for API or Search
+    "Hindi Bollywood 90s Hits",
+    "Top Romantic Hindi Songs of 2023",
+    "Dance Hits Bollywood Playlist",
+    "Popular Hindi Songs by Arijit Singh",
+    "Classic 80s Bollywood Music"
+]
+random.shuffle(queries)
+collected_tracks = set()
 
 for q in queries:
     playlists = search_playlists(q)
     try:
         for p in playlists:
-            print(p["id"])
-            tracks = get_playlist_track_ids(p["id"])
+            print(f"Processing playlist: {p['id']}")
+            tracks = get_playlist_track_ids(p['id'])
             for t in tracks:
-                data = get_song_data(t)
-                print(data["name"])
-                song_name = data["name"]
-                artist_name = random.choice(data["artists"])
-                lyrics = scrape_lyrics(song_name, artist_name)
-                data["keywords"] = extract_keywords(lyrics)
-                data['artists'] = ', '.join(data['artists'])
+                if len(collected_tracks) >= 5000:
+                    break
+                if t not in collected_tracks:
+                    collected_tracks.add(t)
+                    data = get_song_data(t)
+                    print(f"Processing song: {data['name']}")
+                    song_name = data['name']
+                    artist_name = random.choice(data['artists'])
+                    lyrics = scrape_lyrics(song_name, artist_name)
+                    data['keywords'] = extract_keywords(lyrics)
+                    data['artists'] = ', '.join(data['artists'])
 
-                append_dict_to_csv(csv_file_path, data, fieldnames)
+                    append_dict_to_csv(csv_file_path, data, fieldnames)
     except Exception as e:
         print(f"Error processing playlist or track: {e}")
         continue
+
+    if len(collected_tracks) >= 5000:
+        break
