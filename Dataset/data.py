@@ -1,18 +1,20 @@
+import csv
 import os
-import spotipy
-from dotenv import load_dotenv
-from spotipy import SpotifyClientCredentials
-import requests
-from bs4 import BeautifulSoup
-from googlesearch import search
-from nltk.corpus import stopwords
-from nltk.tokenize import word_tokenize
-from collections import Counter
-import nltk
+import random
 import re
 import ssl
-import random
-import csv
+import time
+import urllib
+from collections import Counter
+
+import nltk
+import requests
+import spotipy
+from bs4 import BeautifulSoup
+from dotenv import load_dotenv
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+from spotipy import SpotifyClientCredentials
 
 # Load environment variables
 load_dotenv()
@@ -24,33 +26,46 @@ client_credentials_manager = SpotifyClientCredentials(client_id=SPOTIPY_CLIENT_I
 sp = spotipy.Spotify(client_credentials_manager=client_credentials_manager)
 
 # Download NLTK resources
+try:
+    _create_unverified_https_context = ssl._create_unverified_context
+except AttributeError:
+    pass
+else:
+    ssl._create_default_https_context = _create_unverified_https_context
+
 nltk.download('punkt')
 nltk.download('stopwords')
 
 
-# Define functions
-def scrape_lyrics(song_name, artist_name):
-    search_query = f"{song_name} {artist_name} lyrics site:gaana.com"
-    search_results = search(search_query, num_results=5)
+def search_gaana_lyrics(song_name, artist_name):
+    search_query = f"{song_name} {artist_name}"
+    encoded_query = urllib.parse.quote(search_query)
+    search_url = f"https://gaana.com/search/{encoded_query}"
     headers = {'User-Agent': 'Mozilla/5.0'}
+    try:
+        response = requests.get(search_url, headers=headers)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, 'html.parser')
+        song_card = soup.find('li', class_='card')
+        if not song_card:
+            print("No song card found")
+            return "Lyrics not found."
 
-    for link in search_results:
-        print(f"Attempting to fetch lyrics from: {link}")  # Debug info
-        try:
-            lyrics_page_response = requests.get(link, headers=headers)
+        song_link = song_card.find('a')['href']
+        if not song_link:
+            print("No song link found")
+            return "Lyrics not found."
 
-            if lyrics_page_response.status_code != 200:
-                continue
-            lyrics_soup = BeautifulSoup(lyrics_page_response.text, 'html.parser')
-            lyrics = extract_lyrics_from_p_tags(lyrics_soup)
+        song_url = urllib.parse.urljoin(search_url, song_link)
+        song_response = requests.get(song_url, headers=headers)
+        song_response.raise_for_status()
+        song_soup = BeautifulSoup(song_response.text, 'html.parser')
+        lyrics = extract_lyrics_from_p_tags(song_soup)
 
-            if lyrics:
-                return lyrics
-        except requests.exceptions.RequestException as e:
-            continue
-
-    return "Lyrics not found."
-
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        lyrics = "Lyrics not found."
+    return lyrics
 
 def extract_lyrics_from_p_tags(soup):
     lyrics_lines = []
@@ -61,8 +76,8 @@ def extract_lyrics_from_p_tags(soup):
             lyrics_lines.append(line)
         if len(lyrics_lines) >= 8:
             break
-
     return "\n".join(lyrics_lines).strip()
+
 
 
 def extract_keywords(text, num_keywords=10):
@@ -104,6 +119,7 @@ def get_song_data(track_id):
     audio_features = sp.audio_features(track_id)[0]
 
     song_data = {
+        'id': track_id,
         'name': track_info['name'],
         'artists': [artist['name'] for artist in track_info['artists']],
         'album': track_info['album']['name'],
@@ -113,6 +129,16 @@ def get_song_data(track_id):
         'popularity': track_info['popularity'],
     }
     return song_data
+
+
+def handle_rate_limits(response_headers):
+    if 'Retry-After' in response_headers:
+        wait_time = int(response_headers['Retry-After'])
+        print(f"Rate limit reached. Waiting for {wait_time} seconds...")
+        time.sleep(wait_time)
+    else:
+        print("Waiting for 5 seconds to avoid hitting the rate limit...")
+        time.sleep(5)
 
 
 def append_dict_to_csv(file_path, data_dict, fieldnames):
@@ -125,72 +151,16 @@ def append_dict_to_csv(file_path, data_dict, fieldnames):
 
 
 # Define CSV file path and fieldnames
-csv_file_path = 'song_data.csv'
-fieldnames = ['name', 'artists', 'album', 'release_date', 'energy', 'danceability', 'popularity', 'keywords']
+csv_file_path = "song_data.csv"
+fieldnames = ['id', 'name', 'artists', 'album', 'release_date', 'energy', 'danceability', 'popularity', 'keywords']
 
 # Main logic
 queries = [
-    # General and Popular Keywords
-    "Hindi Bollywood Hits",
-    "Top Bollywood Songs",
-    "Popular Hindi Songs",
-    "Classic Hindi Songs",
-    "Latest Hindi Songs",
-    "Bollywood Music Playlist",
-    "Top Hindi Tracks",
-    "Hit Hindi Songs",
-    "Hindi Movie Songs",
-    "Hindi Love Songs",
-
-    # Specific Decades or Eras
-    "90s Bollywood Songs",
-    "80s Hindi Songs",
-    "70s Hindi Classics",
-    "Early 2000s Bollywood Hits",
-    "Vintage Hindi Songs",
-
-    # Genres and Moods
-    "Romantic Hindi Songs",
-    "Dance Hindi Songs",
-    "Sad Hindi Songs",
-    "Party Hindi Songs",
-    "Melancholic Hindi Music",
-    "Bollywood Romantic Ballads",
-    "Hindi Rock Songs",
-    "Hindi Folk Songs",
-    "Bollywood Love Songs",
-
-    # Popular Artists and Composers
-    "Songs by Lata Mangeshkar",
-    "Songs by Kishore Kumar",
-    "A.R. Rahman Hits",
-    "Songs by Arijit Singh",
-    "Bollywood Songs by Shreya Ghoshal",
-
-    # Specific Themes
-    "Hindi Festival Songs (e.g., Diwali, Holi)",
-    "Hindi Inspirational Songs",
-    "Patriotic Hindi Songs",
-    "Hindi Wedding Songs",
-
-    # Playlists and Curated Collections
-    "Bollywood Top 50",
-    "Hindi Music for Relaxation",
-    "Bollywood Essentials",
-    "Hindi Hits of the Year",
-
-    # Regional Variations
-    "Punjabi Bollywood Songs",
-    "South Indian Hindi Songs",
-    "Hindi Songs from Mumbai",
-
-    # Example Queries for API or Search
-    "Hindi Bollywood 90s Hits",
-    "Top Romantic Hindi Songs of 2023",
-    "Dance Hits Bollywood Playlist",
-    "Popular Hindi Songs by Arijit Singh",
-    "Classic 80s Bollywood Music"
+    "Hindi Bollywood Hits", "Top Bollywood Songs", "Popular Hindi Songs",
+    "Classic Hindi Songs", "Latest Hindi Songs", "Bollywood Music Playlist",
+    "Top Hindi Tracks", "Hit Hindi Songs", "Hindi Movie Songs", "Hindi Love Songs",
 ]
+
 random.shuffle(queries)
 collected_tracks = set()
 
@@ -209,14 +179,19 @@ for q in queries:
                     print(f"Processing song: {data['name']}")
                     song_name = data['name']
                     artist_name = random.choice(data['artists'])
-                    lyrics = scrape_lyrics(song_name, artist_name)
+                    lyrics = search_gaana_lyrics(song_name, artist_name)
                     data['keywords'] = extract_keywords(lyrics)
                     data['artists'] = ', '.join(data['artists'])
 
                     append_dict_to_csv(csv_file_path, data, fieldnames)
-    except Exception as e:
+    except spotipy.exceptions.SpotifyException as e:
         print(f"Error processing playlist or track: {e}")
+        if e.http_status == 429:
+            handle_rate_limits(e.headers)
+        else:
+            break
         continue
 
     if len(collected_tracks) >= 5000:
         break
+
