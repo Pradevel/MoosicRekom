@@ -78,7 +78,7 @@
 
 To customize the queries for fetching playlists and songs from Spotify, you can modify the `queries` list in the `main.py` file. Here’s how:
 
-1. **Open `main.py`**
+1. **Open `queries.py`**
 
 2. **Locate the Queries Section**
 
